@@ -4,7 +4,34 @@ local M = {}
 -- Key: filepath (full path), Value: true if collapsed
 M.collapsed = {}
 
---- Create the floating window with diagnostics
+--- Create the floating window with diagnostics (current file, inline counts)
+---@param items table[] Diagnostic items
+---@param opts table Config options
+---@return number bufnr, number winid
+function M.create_current(items, opts)
+  local bufnr = vim.api.nvim_create_buf(false, true)
+  local winid = M._open_float(bufnr, opts)
+
+  M._render_current(bufnr, items)
+
+  -- Set cursor to the first diagnostic line
+  vim.schedule(function()
+    if not vim.api.nvim_win_is_valid(winid) then
+      return
+    end
+    local data = vim.b[bufnr].unidiagnostic_line_data or {}
+    if data.line_to_item then
+      for lnum, _ in pairs(data.line_to_item) do
+        vim.api.nvim_win_set_cursor(winid, { lnum, 0 })
+        break
+      end
+    end
+  end)
+
+  return bufnr, winid
+end
+
+--- Create the floating window with diagnostics (all buffers, virtual lines above)
 ---@param items table[] Diagnostic items
 ---@param opts table Config options
 ---@return number bufnr, number winid
@@ -76,7 +103,14 @@ function M.create(items, opts)
   return bufnr, winid
 end
 
---- Update the content of an existing window
+--- Update the content of an existing window (current file, inline counts)
+---@param bufnr number
+---@param items table[] Diagnostic items
+function M.update_current(bufnr, items)
+  M._render_current(bufnr, items)
+end
+
+--- Update the content of an existing window (all buffers, virtual lines)
 ---@param bufnr number
 ---@param items table[] Diagnostic items
 ---@param opts table Config options
@@ -112,6 +146,116 @@ function M.get_header_at_line(lnum, bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
   local data = vim.b[bufnr].unidiagnostic_line_data or {}
   return data.line_to_header and data.line_to_header[lnum] or nil
+end
+
+--- Render diagnostics into the buffer for current file (inline counts beside filename)
+---@param bufnr number
+---@param items table[] Diagnostic items
+function M._render_current(bufnr, items)
+  local lines = {}
+  local highlights = {}
+
+  -- Use buffer-local storage for line mappings
+  local line_to_item = {}
+  local line_to_header = {}
+
+  -- Group by filepath (will be only one group for current file)
+  local grouped = {}
+  for _, item in ipairs(items) do
+    if not grouped[item.filepath] then
+      grouped[item.filepath] = {}
+    end
+    table.insert(grouped[item.filepath], item)
+  end
+
+  local diagnostics_mod = require('unidiagnostic.diagnostics')
+
+  for filepath, items_in_group in pairs(grouped) do
+    local display_path = items_in_group[1].display_path
+
+    -- Count severity breakdown
+    local sev_counts = {}
+    for _, item in ipairs(items_in_group) do
+      local char = diagnostics_mod.get_severity_char(item.severity)
+      sev_counts[char] = (sev_counts[char] or 0) + 1
+    end
+
+    -- Build counts inline (beside filename)
+    local count_parts = {}
+    local first = true
+    for _, sev_char in ipairs({ 'e', 'w', 'i', 's' }) do
+      if sev_counts[sev_char] then
+        if not first then
+          table.insert(count_parts, ', ')
+        end
+        first = false
+        table.insert(count_parts, '(' .. sev_counts[sev_char] .. ') ' .. sev_char)
+      end
+    end
+
+    local counts_text = table.concat(count_parts, '')
+    -- Header line: counts beside filename
+    local header_text = counts_text .. ' ▾ ' .. display_path
+    table.insert(lines, header_text)
+    local header_line_idx = #lines - 1
+
+    -- Calculate highlight positions
+    local col_pos = 0
+    for _, sev_char in ipairs({ 'e', 'w', 'i', 's' }) do
+      if sev_counts[sev_char] then
+        if col_pos > 0 then
+          col_pos = col_pos + 2 -- ', '
+        end
+        local count_str = '(' .. sev_counts[sev_char] .. ') ' .. sev_char
+        local sev = nil
+        if sev_char == 'e' then sev = vim.diagnostic.severity.ERROR
+        elseif sev_char == 'w' then sev = vim.diagnostic.severity.WARN
+        elseif sev_char == 'i' then sev = vim.diagnostic.severity.INFO
+        elseif sev_char == 's' then sev = vim.diagnostic.severity.HINT
+        end
+        table.insert(highlights, { line = header_line_idx, col = col_pos, end_col = col_pos + #count_str, hl = M._severity_to_hl(sev) })
+        col_pos = col_pos + #count_str
+      end
+    end
+
+    -- Fold icon and filename highlights
+    table.insert(highlights, { line = header_line_idx, col = col_pos + 1, end_col = col_pos + 3, hl = 'FoldColumn' })
+    table.insert(highlights, { line = header_line_idx, col = col_pos + 4, end_col = col_pos + 4 + #display_path, hl = 'Directory' })
+    line_to_header[#lines] = filepath
+
+    -- Always expanded for current file (no fold needed)
+    for _, item in ipairs(items_in_group) do
+      local sev_char = diagnostics_mod.get_severity_char(item.severity)
+      local line_text = string.format('  [%s]  %d:%d  %s', sev_char, item.lnum, item.col, item.message)
+      table.insert(lines, line_text)
+
+      local sev_hl = M._severity_to_hl(item.severity)
+      table.insert(highlights, { line = #lines - 1, col = 2, end_col = 5, hl = sev_hl })
+
+      line_to_item[#lines] = item
+    end
+  end
+
+  vim.api.nvim_set_option_value('modifiable', true, { buf = bufnr })
+  vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
+  vim.api.nvim_set_option_value('modifiable', false, { buf = bufnr })
+
+  -- Apply highlights
+  local ns = vim.api.nvim_create_namespace('unidiagnostic')
+  vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
+  for _, hl in ipairs(highlights) do
+    vim.api.nvim_buf_add_highlight(bufnr, ns, hl.hl, hl.line, hl.col, hl.end_col)
+  end
+
+  -- Set buffer options
+  vim.api.nvim_set_option_value('buftype', 'nofile', { buf = bufnr })
+  vim.api.nvim_set_option_value('filetype', 'unidiagnostic', { buf = bufnr })
+
+  -- Store line mappings in buffer-local variable
+  vim.b[bufnr].unidiagnostic_line_data = {
+    line_to_item = line_to_item,
+    line_to_header = line_to_header,
+  }
 end
 
 --- Render diagnostics into the buffer

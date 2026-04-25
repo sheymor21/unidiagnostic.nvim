@@ -27,10 +27,21 @@ local severity_order = {
 ---@field filepath string  -- full path for internal use
 ---@field display_path string -- shortened path for display
 
-local function shorten_path(filepath)
+local function shorten_path(filepath, single_parent_only)
   if filepath == '[No Name]' then
     return filepath
   end
+
+  -- Always show only parent/filename format when requested
+  if single_parent_only then
+    local basename = vim.fn.fnamemodify(filepath, ':t')
+    local parent = vim.fn.fnamemodify(filepath, ':h:t')
+    if parent and parent ~= '.' and parent ~= '/' then
+      return parent .. '/' .. basename
+    end
+    return basename
+  end
+
   -- Try relative to cwd
   local rel = vim.fn.fnamemodify(filepath, ':.')
   if rel ~= filepath and not rel:match('^%.%.') then
@@ -51,9 +62,15 @@ local function shorten_path(filepath)
 end
 
 --- Gather all diagnostics from vim.diagnostic.get()
+---@param current_buf_only boolean|nil If true, only get diagnostics for current buffer
 --- Future hook: scanner module can be added here
-function M.gather()
-  local all = vim.diagnostic.get()
+function M.gather(current_buf_only)
+  local all
+  if current_buf_only then
+    all = vim.diagnostic.get(0)
+  else
+    all = vim.diagnostic.get()
+  end
 
   -- TODO: Future scanner integration
   -- if config.get().scanner.enabled then
@@ -78,7 +95,7 @@ function M.gather()
       source = d.source,
       code = d.code,
       filepath = filepath,
-      display_path = shorten_path(filepath),
+      display_path = shorten_path(filepath, current_buf_only),
     })
   end
 
@@ -101,6 +118,11 @@ function M.gather()
   end
 
   return items
+end
+
+--- Gather diagnostics for current buffer only
+function M.gather_current()
+  return M.gather(true)
 end
 
 function M.get_severity_char(severity)
