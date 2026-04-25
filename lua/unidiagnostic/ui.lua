@@ -1,25 +1,8 @@
 local M = {}
 
--- Store mapping from line number to diagnostic item for jump-to
-M.line_to_item = {}
-
 -- Track which file groups are collapsed
 -- Key: filepath (full path), Value: true if collapsed
 M.collapsed = {}
-
--- Track which lines are file headers (for fold detection)
--- Key: line number (1-indexed), Value: filepath
-M.line_to_header = {}
-
--- Track which lines are severity-count lines (cursor should skip them)
--- Key: line number (1-indexed), Value: true
-M.count_lines = {}
-
--- Buffer-local autocmd id for CursorMoved (cleared on close)
-M._cursor_autocmd_id = nil
-
--- Last cursor line number to detect movement direction
-M._last_cursor_lnum = nil
 
 --- Create the floating window with diagnostics
 ---@param items table[] Diagnostic items
@@ -39,6 +22,20 @@ function M.create(items, opts)
 
   M._render(bufnr, items)
 
+  -- Set cursor to the first header line (skip blank top line)
+  local data = vim.b[bufnr].unidiagnostic_line_data or {}
+  local first_header_lnum = nil
+  if data.line_to_header then
+    for lnum, _ in pairs(data.line_to_header) do
+      if not first_header_lnum or lnum < first_header_lnum then
+        first_header_lnum = lnum
+      end
+    end
+  end
+  if first_header_lnum then
+    vim.api.nvim_win_set_cursor(winid, { first_header_lnum, 0 })
+  end
+
   return bufnr, winid
 end
 
@@ -53,12 +50,9 @@ end
 --- Close the floating window
 ---@param winid number|nil
 function M.close(winid)
-  if M._cursor_autocmd_id then
-    pcall(vim.api.nvim_del_autocmd, M._cursor_autocmd_id)
-    M._cursor_autocmd_id = nil
-  end
-  M._last_cursor_lnum = nil
   if winid and vim.api.nvim_win_is_valid(winid) then
+    local bufnr = vim.api.nvim_win_get_buf(winid)
+    vim.b[bufnr].unidiagnostic_line_data = nil
     vim.api.nvim_win_close(winid, true)
   end
 end
@@ -75,9 +69,12 @@ end
 
 --- Check if a line is a file header
 ---@param lnum number 1-indexed line number
+---@param bufnr number|nil buffer number (defaults to current)
 ---@return string|nil filepath if header, nil otherwise
-function M.get_header_at_line(lnum)
-  return M.line_to_header[lnum]
+function M.get_header_at_line(lnum, bufnr)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  local data = vim.b[bufnr].unidiagnostic_line_data or {}
+  return data.line_to_header and data.line_to_header[lnum] or nil
 end
 
 --- Render diagnostics into the buffer
@@ -86,9 +83,11 @@ end
 function M._render(bufnr, items)
   local lines = {}
   local highlights = {}
-  M.line_to_item = {}
-  M.line_to_header = {}
-  M.count_lines = {}
+
+  -- Use buffer-local storage for line mappings to avoid stale module state
+  local line_to_item = {}
+  local line_to_header = {}
+  local virt_lines_map = {}
 
   -- Group by filepath
   local grouped = {}
@@ -117,23 +116,16 @@ function M._render(bufnr, items)
       local char = diagnostics_mod.get_severity_char(item.severity)
       sev_counts[char] = (sev_counts[char] or 0) + 1
     end
-    -- Build count string in priority order: e, w, i, s
-    -- Format: (2) e, (3) w, (4) i, (5) s
-    local count_parts = {}
-    for _, sev_char in ipairs({ 'e', 'w', 'i', 's' }) do
-      if sev_counts[sev_char] then
-        table.insert(count_parts, '(' .. sev_counts[sev_char] .. ') ' .. sev_char)
-      end
-    end
-    local counts_text = table.concat(count_parts, ', ')
 
-    -- Counts line (above the filename, with colored severity counts)
-    table.insert(lines, counts_text)
-    local counts_line_idx = #lines - 1
-    -- Highlight entire (N) x segment for each severity
-    local cursor = 0
+    -- Build virtual count line to display above the header
+    local virt_line = {}
+    local first = true
     for _, sev_char in ipairs({ 'e', 'w', 'i', 's' }) do
       if sev_counts[sev_char] then
+        if not first then
+          table.insert(virt_line, { ', ', 'Normal' })
+        end
+        first = false
         local count_str = '(' .. sev_counts[sev_char] .. ') ' .. sev_char
         local sev = nil
         if sev_char == 'e' then sev = vim.diagnostic.severity.ERROR
@@ -141,26 +133,24 @@ function M._render(bufnr, items)
         elseif sev_char == 'i' then sev = vim.diagnostic.severity.INFO
         elseif sev_char == 's' then sev = vim.diagnostic.severity.HINT
         end
-        table.insert(highlights, {
-          line = counts_line_idx,
-          col = cursor,
-          end_col = cursor + #count_str,
-          hl = M._severity_to_hl(sev),
-        })
-        cursor = cursor + #count_str + 2  -- +2 for ", " separator
+        table.insert(virt_line, { count_str, M._severity_to_hl(sev) })
       end
     end
-    M.line_to_item[#lines] = nil
-    M.line_to_header[#lines] = nil
-    M.count_lines[#lines] = true
 
     -- Filename line with fold icon
     local header_text = fold_icon .. ' ' .. display_path
     table.insert(lines, header_text)
-    table.insert(highlights, { line = #lines - 1, col = 0, end_col = 2, hl = 'FoldColumn' })
-    table.insert(highlights, { line = #lines - 1, col = 3, end_col = 3 + #display_path, hl = 'Directory' })
-    M.line_to_item[#lines] = nil  -- header line, not clickable
-    M.line_to_header[#lines] = filepath
+    local header_line_idx = #lines - 1
+
+    -- Store virtual count line above this header
+    if #virt_line > 0 then
+      virt_lines_map[header_line_idx] = virt_line
+    end
+
+    table.insert(highlights, { line = header_line_idx, col = 0, end_col = 2, hl = 'FoldColumn' })
+    table.insert(highlights, { line = header_line_idx, col = 3, end_col = 3 + #display_path, hl = 'Directory' })
+    line_to_item[#lines] = nil  -- header line, not clickable
+    line_to_header[#lines] = filepath
 
     if not is_collapsed then
       for _, item in ipairs(items_in_group) do
@@ -172,10 +162,34 @@ function M._render(bufnr, items)
         local sev_hl = M._severity_to_hl(item.severity)
         table.insert(highlights, { line = #lines - 1, col = 2, end_col = 5, hl = sev_hl })
 
-        M.line_to_item[#lines] = item
+        line_to_item[#lines] = item
       end
     end
 
+  end
+
+  -- If first header has a virtual count line, insert blank line at top
+  -- so virt_lines_above on line 0 is visible (extmarks above line 0 may be clipped)
+  if virt_lines_map[0] then
+    table.insert(lines, 1, '')
+    for _, hl in ipairs(highlights) do
+      hl.line = hl.line + 1
+    end
+    local shifted_items = {}
+    for lnum, item in pairs(line_to_item) do
+      shifted_items[lnum + 1] = item
+    end
+    line_to_item = shifted_items
+    local shifted_headers = {}
+    for lnum, fp in pairs(line_to_header) do
+      shifted_headers[lnum + 1] = fp
+    end
+    line_to_header = shifted_headers
+    local shifted_virt = {}
+    for line_idx, vl in pairs(virt_lines_map) do
+      shifted_virt[line_idx + 1] = vl
+    end
+    virt_lines_map = shifted_virt
   end
 
   vim.api.nvim_set_option_value('modifiable', true, { buf = bufnr })
@@ -189,9 +203,23 @@ function M._render(bufnr, items)
     vim.api.nvim_buf_add_highlight(bufnr, ns, hl.hl, hl.line, hl.col, hl.end_col)
   end
 
+  -- Apply virtual count lines above headers
+  for line_idx, virt_line in pairs(virt_lines_map) do
+    vim.api.nvim_buf_set_extmark(bufnr, ns, line_idx, 0, {
+      virt_lines = { virt_line },
+      virt_lines_above = true,
+    })
+  end
+
   -- Set buffer options
   vim.api.nvim_set_option_value('buftype', 'nofile', { buf = bufnr })
   vim.api.nvim_set_option_value('filetype', 'unidiagnostic', { buf = bufnr })
+
+  -- Store line mappings in buffer-local variable
+  vim.b[bufnr].unidiagnostic_line_data = {
+    line_to_item = line_to_item,
+    line_to_header = line_to_header,
+  }
 end
 
 --- Open a floating window with the given buffer
@@ -252,32 +280,6 @@ function M._open_float(bufnr, opts)
     vim.api.nvim_set_option_value('winhighlight', opts.winhighlight, { win = winid })
   end
 
-  -- Skip count lines when cursor lands on them
-  M._last_cursor_lnum = nil
-  M._cursor_autocmd_id = vim.api.nvim_create_autocmd('CursorMoved', {
-    buffer = bufnr,
-    callback = function()
-      local cursor = vim.api.nvim_win_get_cursor(winid)
-      local lnum = cursor[1]
-      local prev = M._last_cursor_lnum or lnum
-      M._last_cursor_lnum = lnum
-
-      if M.count_lines[lnum] then
-        if prev < lnum then
-          -- moved down onto count line: push down to filename line below
-          vim.api.nvim_win_set_cursor(winid, { lnum + 1, 0 })
-        else
-          -- moved up onto count line: push up, or down if at top
-          local target = math.max(1, lnum - 1)
-          if target == lnum then
-            target = lnum + 1
-          end
-          vim.api.nvim_win_set_cursor(winid, { target, 0 })
-        end
-      end
-    end,
-  })
-
   return winid
 end
 
@@ -296,9 +298,12 @@ end
 
 --- Get the diagnostic item for a given line number
 ---@param lnum number 1-indexed line number
+---@param bufnr number|nil buffer number (defaults to current)
 ---@return table|nil
-function M.get_item_at_line(lnum)
-  return M.line_to_item[lnum]
+function M.get_item_at_line(lnum, bufnr)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  local data = vim.b[bufnr].unidiagnostic_line_data or {}
+  return data.line_to_item and data.line_to_item[lnum] or nil
 end
 
 return M
