@@ -1,20 +1,7 @@
 local config = require('unidiagnostic.config')
+local util = require('unidiagnostic.util')
 
 local M = {}
-
-local severity_map = {
-  [vim.diagnostic.severity.ERROR] = 'e',
-  [vim.diagnostic.severity.WARN]  = 'w',
-  [vim.diagnostic.severity.INFO]  = 'i',
-  [vim.diagnostic.severity.HINT]  = 's',
-}
-
-local severity_order = {
-  [vim.diagnostic.severity.ERROR] = 1,
-  [vim.diagnostic.severity.WARN]  = 2,
-  [vim.diagnostic.severity.INFO]  = 3,
-  [vim.diagnostic.severity.HINT]  = 4,
-}
 
 ---@class DiagnosticItem
 ---@field bufnr number
@@ -63,7 +50,6 @@ end
 
 --- Gather all diagnostics from vim.diagnostic.get()
 ---@param current_buf_only boolean|nil If true, only get diagnostics for current buffer
---- Future hook: scanner module can be added here
 function M.gather(current_buf_only)
   local all
   if current_buf_only then
@@ -71,12 +57,6 @@ function M.gather(current_buf_only)
   else
     all = vim.diagnostic.get()
   end
-
-  -- TODO: Future scanner integration
-  -- if config.get().scanner.enabled then
-  --   local scanned = require('unidiagnostic.scanner').run()
-  --   vim.list_extend(all, scanned)
-  -- end
 
   ---@type DiagnosticItem[]
   local items = {}
@@ -102,8 +82,8 @@ function M.gather(current_buf_only)
   -- Sort by severity if enabled
   if config.get().severity_sort then
     table.sort(items, function(a, b)
-      local sa = severity_order[a.severity] or 99
-      local sb = severity_order[b.severity] or 99
+      local sa = util.severity_order(a.severity)
+      local sb = util.severity_order(b.severity)
       if sa ~= sb then
         return sa < sb
       end
@@ -123,10 +103,6 @@ end
 --- Gather diagnostics for current buffer only
 function M.gather_current()
   return M.gather(true)
-end
-
-function M.get_severity_char(severity)
-  return severity_map[severity] or '?'
 end
 
 return M

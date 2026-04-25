@@ -1,3 +1,6 @@
+local util = require('unidiagnostic.util')
+local jump = require('unidiagnostic.jump')
+
 local M = {}
 
 --- Check if telescope is available
@@ -7,55 +10,12 @@ function M.has_telescope()
   return ok
 end
 
---- Jump to a diagnostic item after closing the unidiagnostic float
----@param item table DiagnosticItem
-local function jump_to_item(item)
-  if not vim.api.nvim_buf_is_valid(item.bufnr) then
-    vim.notify('Buffer no longer valid', vim.log.levels.WARN)
-    return
-  end
-
-  local target_win = nil
-  for _, win in ipairs(vim.api.nvim_list_wins()) do
-    if vim.api.nvim_win_get_buf(win) == item.bufnr then
-      target_win = win
-      break
-    end
-  end
-
-  if not target_win then
-    target_win = vim.api.nvim_get_current_win()
-    vim.api.nvim_win_set_buf(target_win, item.bufnr)
-  end
-
-  vim.api.nvim_set_current_win(target_win)
-  vim.api.nvim_win_set_cursor(target_win, { item.lnum, item.col - 1 })
-  vim.diagnostic.open_float({ bufnr = item.bufnr, scope = 'cursor' })
-end
-
---- Map diagnostic severity to highlight group
----@param severity number
----@return string
-local function severity_to_hl(severity)
-  if severity == vim.diagnostic.severity.ERROR then
-    return 'DiagnosticError'
-  elseif severity == vim.diagnostic.severity.WARN then
-    return 'DiagnosticWarn'
-  elseif severity == vim.diagnostic.severity.INFO then
-    return 'DiagnosticInfo'
-  elseif severity == vim.diagnostic.severity.HINT then
-    return 'DiagnosticHint'
-  end
-  return 'Normal'
-end
-
 --- Create a telescope entry from a diagnostic item
 ---@param item table DiagnosticItem
 ---@param show_path boolean Whether to include the file path in the display
 ---@return table
 local function make_entry(item, show_path)
-  local diagnostics_mod = require('unidiagnostic.diagnostics')
-  local sev_char = diagnostics_mod.get_severity_char(item.severity)
+  local sev_char = util.get_severity_char(item.severity)
 
   local display_text
   if show_path then
@@ -64,7 +24,7 @@ local function make_entry(item, show_path)
     display_text = string.format('[%s] %d:%d  %s', sev_char, item.lnum, item.col, item.message)
   end
 
-  local hl_group = severity_to_hl(item.severity)
+  local hl_group = util.severity_to_hl(item.severity)
   local highlights = {
     { { 0, 3 }, hl_group }, -- highlight the [e]/[w]/[i]/[s] part
   }
@@ -108,13 +68,13 @@ function M.open_picker(items, prompt_title, show_path)
       end,
     }),
     sorter = conf.generic_sorter({}),
-    attach_mappings = function(prompt_bufnr, map)
+    attach_mappings = function(prompt_bufnr, _)
       actions.select_default:replace(function()
         local selection = action_state.get_selected_entry()
         actions.close(prompt_bufnr)
 
         if selection and selection.value then
-          jump_to_item(selection.value)
+          jump.jump_to_item(selection.value)
         end
       end)
       return true
