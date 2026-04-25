@@ -8,20 +8,20 @@ local severity_order = {
 }
 
 local severity_char = {
-  [vim.diagnostic.severity.ERROR] = 'e',
-  [vim.diagnostic.severity.WARN]  = 'w',
-  [vim.diagnostic.severity.INFO]  = 'i',
-  [vim.diagnostic.severity.HINT]  = 's',
+  [vim.diagnostic.severity.ERROR] = 'E',
+  [vim.diagnostic.severity.WARN]  = 'W',
+  [vim.diagnostic.severity.INFO]  = 'I',
+  [vim.diagnostic.severity.HINT]  = 'H',
 }
 
 local char_to_severity = {
-  e = vim.diagnostic.severity.ERROR,
-  w = vim.diagnostic.severity.WARN,
-  i = vim.diagnostic.severity.INFO,
-  s = vim.diagnostic.severity.HINT,
+  E = vim.diagnostic.severity.ERROR,
+  W = vim.diagnostic.severity.WARN,
+  I = vim.diagnostic.severity.INFO,
+  H = vim.diagnostic.severity.HINT,
 }
 
-M.severity_chars = { 'e', 'w', 'i', 's' }
+M.severity_chars = { 'E', 'W', 'I', 'H' }
 
 --- Get severity sort order (lower = higher priority)
 ---@param severity number
