@@ -48,11 +48,13 @@ require('unidiagnostic').setup({
 
   -- Navigation keys (Colemak-friendly by default, fully customizable)
   keys = {
-    up    = 'k',    -- move up
-    down  = 'j',    -- move down
-    open  = '<CR>', -- jump to diagnostic location
-    close = 'q',    -- close window
-    fold  = 'h',    -- toggle fold / retract file group
+    up         = 'k',    -- move up
+    down       = 'j',    -- move down
+    open       = '<CR>', -- jump to diagnostic location
+    close      = 'q',    -- close window
+    fold       = 'h',    -- toggle fold / retract file group
+    search     = 's',    -- telescope search diagnostics in file under cursor
+    search_all = 'S',    -- telescope search all diagnostics
   },
 
   -- Window highlights (blend with editor, nil = Neovim defaults)
@@ -88,6 +90,8 @@ If no diagnostics exist when opening, a notification is shown instead of an empt
 | `j` / `k` | Navigate down / up |
 | `<CR>` | Jump to the diagnostic under cursor |
 | `h` | Toggle fold / retract file group |
+| `s` | Telescope search diagnostics in file under cursor |
+| `S` | Telescope search all diagnostics |
 | `q` | Close window |
 | `<Esc>` | Close window |
 
