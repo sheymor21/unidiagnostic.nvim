@@ -248,6 +248,9 @@ function M._open_float(bufnr, opts)
   vim.api.nvim_set_option_value('cursorline', true, { win = winid })
   vim.api.nvim_set_option_value('number', false, { win = winid })
   vim.api.nvim_set_option_value('relativenumber', false, { win = winid })
+  if opts.winhighlight then
+    vim.api.nvim_set_option_value('winhighlight', opts.winhighlight, { win = winid })
+  end
 
   -- Skip count lines when cursor lands on them
   M._last_cursor_lnum = nil

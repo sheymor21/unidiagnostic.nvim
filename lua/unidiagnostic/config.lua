@@ -16,6 +16,9 @@ M.defaults = {
     fold = 'h',      -- toggle fold / retract file group
   },
 
+  -- Window highlights to blend with editor (nil = Neovim defaults)
+  winhighlight = 'Normal:Normal,FloatBorder:VertSplit,FloatTitle:Title',
+
   -- Behavior
   auto_refresh = true,
   severity_sort = true, -- Error > Warn > Info > Hint
