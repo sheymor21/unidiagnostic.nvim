@@ -14,6 +14,8 @@ M.defaults = {
     open = '<CR>',   -- jump to diagnostic
     close = 'q',     -- close window
     fold = 'h',      -- toggle fold / retract file group
+    search = 's',    -- telescope search diagnostics in file under cursor
+    search_all = 'S', -- telescope search all diagnostics
   },
 
   -- Window highlights to blend with editor (nil = Neovim defaults)
