@@ -7,13 +7,11 @@ M.defaults = {
   height = 20,
   border = 'rounded',
 
-  -- Navigation keys (Colemak-friendly by default, user can override)
+  -- Navigation keys (user can override)
   keys = {
-    up = 'k',        -- move up
-    down = 'j',      -- move down
     open = '<CR>',   -- jump to diagnostic
     close = 'q',     -- close window
-    fold = 'h',      -- toggle fold / retract file group
+    fold = 'h',      -- toggle fold / retract file
     search = 's',    -- telescope search diagnostics in file under cursor
     search_all = 'S', -- telescope search all diagnostics
   },
