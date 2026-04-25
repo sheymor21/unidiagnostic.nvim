@@ -78,8 +78,11 @@ require('unidiagnostic').setup({
 
 | Command | Description |
 |---------|-------------|
-| `:UnidiagnosticToggle` | Open or close the diagnostic window |
+| `:UnidiagnosticToggle` | Open or close the diagnostic window (all buffers) |
+| `:UnidiagnosticCurrent` | Toggle diagnostics window for current file only |
 | `:UnidiagnosticRefresh` | Manually refresh the window content |
+
+**Note**: The all-buffers window (`:UnidiagnosticToggle`) and current-file window (`:UnidiagnosticCurrent`) are completely independent - you can have both open at the same time, or either one individually. Use `q` or `<Esc>` inside either window to close it.
 
 If no diagnostics exist when opening, a notification is shown instead of an empty window.
 
@@ -97,6 +100,7 @@ If no diagnostics exist when opening, a notification is shown instead of an empt
 
 ## Display Format
 
+### All Buffers (`:UnidiagnosticToggle`)
 ```
 (1) e, (1) w
 ▸ lua/plugins/init.lua
@@ -109,13 +113,21 @@ If no diagnostics exist when opening, a notification is shown instead of an empt
   [e]  3:1    Cannot find name 'console'
 ```
 
-- `▾` / `▸` — expanded / collapsed file group
-- Counts shown **above** the filename
+### Current File Only (`:UnidiagnosticCurrent`)
+```
+(2) e ▾ utils/path.lua
+  [e]  15:8    Missing return type
+  [e]  42:3    Undefined variable
+```
+
+- Counts shown **beside** the filename (inline, same line)
+- Only `parent/filename` format shown (no full paths)
+- `▾` — always expanded (no fold needed for single file)
 - Severity letters in counts are colored: `e` error, `w` warn, `i` info, `s` suggest/hint
 - `[e]` / `[w]` / `[i]` / `[s]` — colored by severity
 - `line:column` — exact position
 - Message — the diagnostic text
-- Cursor automatically skips severity-count lines when navigating with `j`/`k`
+- Cursor automatically positioned at first diagnostic
 - Buffer `filetype` is set to `unidiagnostic` for custom highlights or ftplugin hooks
 
 ## Future: Project Scanner
