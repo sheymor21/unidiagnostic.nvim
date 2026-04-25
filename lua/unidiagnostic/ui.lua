@@ -22,19 +22,56 @@ function M.create(items, opts)
 
   M._render(bufnr, items)
 
-  -- Set cursor to the first header line (skip blank top line)
-  local data = vim.b[bufnr].unidiagnostic_line_data or {}
-  local first_header_lnum = nil
-  if data.line_to_header then
-    for lnum, _ in pairs(data.line_to_header) do
-      if not first_header_lnum or lnum < first_header_lnum then
-        first_header_lnum = lnum
+  -- Set cursor to the first non-blank actionable line (header or diagnostic)
+  -- Use vim.schedule to ensure all buffer modifications are complete first
+  vim.schedule(function()
+    if not vim.api.nvim_win_is_valid(winid) then
+      return
+    end
+
+    local data = vim.b[bufnr].unidiagnostic_line_data or {}
+    local actionable_lines = {}
+
+    if data.line_to_header then
+      for lnum, _ in pairs(data.line_to_header) do
+        actionable_lines[lnum] = true
       end
     end
-  end
-  if first_header_lnum then
-    vim.api.nvim_win_set_cursor(winid, { first_header_lnum, 0 })
-  end
+    if data.line_to_item then
+      for lnum, _ in pairs(data.line_to_item) do
+        actionable_lines[lnum] = true
+      end
+    end
+
+    -- Find first actionable line, skipping any leading blank lines
+    local target_lnum = nil
+    for lnum, _ in pairs(actionable_lines) do
+      if not target_lnum or lnum < target_lnum then
+        target_lnum = lnum
+      end
+    end
+
+    if target_lnum then
+      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+      -- Skip blank lines to land on actual content
+      while target_lnum <= #lines and (not lines[target_lnum] or lines[target_lnum] == '') do
+        local next_lnum = nil
+        for lnum, _ in pairs(actionable_lines) do
+          if lnum > target_lnum and (not next_lnum or lnum < next_lnum) then
+            next_lnum = lnum
+          end
+        end
+        target_lnum = next_lnum
+        if not target_lnum then
+          break
+        end
+      end
+    end
+
+    if target_lnum then
+      vim.api.nvim_win_set_cursor(winid, { target_lnum, 0 })
+    end
+  end)
 
   return bufnr, winid
 end
