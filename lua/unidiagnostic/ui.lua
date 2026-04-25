@@ -11,6 +11,16 @@ M.collapsed = {}
 -- Key: line number (1-indexed), Value: filepath
 M.line_to_header = {}
 
+-- Track which lines are severity-count lines (cursor should skip them)
+-- Key: line number (1-indexed), Value: true
+M.count_lines = {}
+
+-- Buffer-local autocmd id for CursorMoved (cleared on close)
+M._cursor_autocmd_id = nil
+
+-- Last cursor line number to detect movement direction
+M._last_cursor_lnum = nil
+
 --- Create the floating window with diagnostics
 ---@param items table[] Diagnostic items
 ---@param opts table Config options
@@ -43,6 +53,11 @@ end
 --- Close the floating window
 ---@param winid number|nil
 function M.close(winid)
+  if M._cursor_autocmd_id then
+    pcall(vim.api.nvim_del_autocmd, M._cursor_autocmd_id)
+    M._cursor_autocmd_id = nil
+  end
+  M._last_cursor_lnum = nil
   if winid and vim.api.nvim_win_is_valid(winid) then
     vim.api.nvim_win_close(winid, true)
   end
@@ -73,6 +88,7 @@ function M._render(bufnr, items)
   local highlights = {}
   M.line_to_item = {}
   M.line_to_header = {}
+  M.count_lines = {}
 
   -- Group by filepath
   local grouped = {}
@@ -136,6 +152,7 @@ function M._render(bufnr, items)
     end
     M.line_to_item[#lines] = nil
     M.line_to_header[#lines] = nil
+    M.count_lines[#lines] = true
 
     -- Filename line with fold icon
     local header_text = fold_icon .. ' ' .. display_path
@@ -159,17 +176,6 @@ function M._render(bufnr, items)
       end
     end
 
-    -- Empty line between groups
-    table.insert(lines, '')
-    M.line_to_item[#lines] = nil
-    M.line_to_header[#lines] = nil
-  end
-
-  -- Remove trailing empty line
-  if lines[#lines] == '' then
-    table.remove(lines)
-    M.line_to_item[#lines + 1] = nil
-    M.line_to_header[#lines + 1] = nil
   end
 
   vim.api.nvim_set_option_value('modifiable', true, { buf = bufnr })
@@ -242,6 +248,32 @@ function M._open_float(bufnr, opts)
   vim.api.nvim_set_option_value('cursorline', true, { win = winid })
   vim.api.nvim_set_option_value('number', false, { win = winid })
   vim.api.nvim_set_option_value('relativenumber', false, { win = winid })
+
+  -- Skip count lines when cursor lands on them
+  M._last_cursor_lnum = nil
+  M._cursor_autocmd_id = vim.api.nvim_create_autocmd('CursorMoved', {
+    buffer = bufnr,
+    callback = function()
+      local cursor = vim.api.nvim_win_get_cursor(winid)
+      local lnum = cursor[1]
+      local prev = M._last_cursor_lnum or lnum
+      M._last_cursor_lnum = lnum
+
+      if M.count_lines[lnum] then
+        if prev < lnum then
+          -- moved down onto count line: push down to filename line below
+          vim.api.nvim_win_set_cursor(winid, { lnum + 1, 0 })
+        else
+          -- moved up onto count line: push up, or down if at top
+          local target = math.max(1, lnum - 1)
+          if target == lnum then
+            target = lnum + 1
+          end
+          vim.api.nvim_win_set_cursor(winid, { target, 0 })
+        end
+      end
+    end,
+  })
 
   return winid
 end
