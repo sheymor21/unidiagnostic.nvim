@@ -3,10 +3,10 @@ local config = require('unidiagnostic.config')
 local M = {}
 
 local severity_map = {
-  [vim.diagnostic.severity.ERROR] = 'E',
-  [vim.diagnostic.severity.WARN]  = 'W',
-  [vim.diagnostic.severity.INFO]  = 'I',
-  [vim.diagnostic.severity.HINT]  = 'H',
+  [vim.diagnostic.severity.ERROR] = 'e',
+  [vim.diagnostic.severity.WARN]  = 'w',
+  [vim.diagnostic.severity.INFO]  = 'i',
+  [vim.diagnostic.severity.HINT]  = 's',
 }
 
 local severity_order = {
@@ -24,7 +24,31 @@ local severity_order = {
 ---@field severity number
 ---@field source string|nil
 ---@field code string|nil
----@field filepath string
+---@field filepath string  -- full path for internal use
+---@field display_path string -- shortened path for display
+
+local function shorten_path(filepath)
+  if filepath == '[No Name]' then
+    return filepath
+  end
+  -- Try relative to cwd
+  local rel = vim.fn.fnamemodify(filepath, ':.')
+  if rel ~= filepath and not rel:match('^%.%.') then
+    return rel
+  end
+  -- If outside cwd, show ~-relative or basename with parent
+  local home = vim.fn.fnamemodify(filepath, ':~')
+  if home ~= filepath and not home:match('^%.%.') then
+    return home
+  end
+  -- Fallback: parent/basename
+  local basename = vim.fn.fnamemodify(filepath, ':t')
+  local parent = vim.fn.fnamemodify(filepath, ':h:t')
+  if parent and parent ~= '.' and parent ~= '/' then
+    return parent .. '/' .. basename
+  end
+  return basename
+end
 
 --- Gather all diagnostics from vim.diagnostic.get()
 --- Future hook: scanner module can be added here
@@ -54,6 +78,7 @@ function M.gather()
       source = d.source,
       code = d.code,
       filepath = filepath,
+      display_path = shorten_path(filepath),
     })
   end
 

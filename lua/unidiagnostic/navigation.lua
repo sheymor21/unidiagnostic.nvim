@@ -20,10 +20,33 @@ function M.setup(bufnr, plugin)
     M.jump_to_diagnostic(bufnr, plugin)
   end, opts)
 
+  -- Fold / Unfold file group
+  vim.keymap.set('n', keys.fold, function()
+    M.toggle_fold_at_cursor(bufnr, plugin)
+  end, opts)
+
   -- Optional: also close with Esc
   vim.keymap.set('n', '<Esc>', function()
     plugin.close()
   end, opts)
+end
+
+--- Toggle fold state for the file group at cursor position
+---@param bufnr number
+---@param plugin table
+function M.toggle_fold_at_cursor(bufnr, plugin)
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  local lnum = cursor[1]
+
+  local filepath = ui.get_header_at_line(lnum)
+  if not filepath then
+    return
+  end
+
+  ui.toggle_fold(filepath)
+
+  -- Re-render to show/hide diagnostics
+  plugin.refresh()
 end
 
 --- Jump to the diagnostic under the cursor

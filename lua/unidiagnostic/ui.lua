@@ -3,6 +3,14 @@ local M = {}
 -- Store mapping from line number to diagnostic item for jump-to
 M.line_to_item = {}
 
+-- Track which file groups are collapsed
+-- Key: filepath (full path), Value: true if collapsed
+M.collapsed = {}
+
+-- Track which lines are file headers (for fold detection)
+-- Key: line number (1-indexed), Value: filepath
+M.line_to_header = {}
+
 --- Create the floating window with diagnostics
 ---@param items table[] Diagnostic items
 ---@param opts table Config options
@@ -10,6 +18,14 @@ M.line_to_item = {}
 function M.create(items, opts)
   local bufnr = vim.api.nvim_create_buf(false, true)
   local winid = M._open_float(bufnr, opts)
+
+  -- Initialize fold state: collapse all groups if fold_by_default is true
+  M.collapsed = {}
+  if opts.fold_by_default then
+    for _, item in ipairs(items) do
+      M.collapsed[item.filepath] = true
+    end
+  end
 
   M._render(bufnr, items)
 
@@ -32,6 +48,23 @@ function M.close(winid)
   end
 end
 
+--- Toggle fold state for a file group
+---@param filepath string Full filepath
+function M.toggle_fold(filepath)
+  if M.collapsed[filepath] then
+    M.collapsed[filepath] = nil
+  else
+    M.collapsed[filepath] = true
+  end
+end
+
+--- Check if a line is a file header
+---@param lnum number 1-indexed line number
+---@return string|nil filepath if header, nil otherwise
+function M.get_header_at_line(lnum)
+  return M.line_to_header[lnum]
+end
+
 --- Render diagnostics into the buffer
 ---@param bufnr number
 ---@param items table[] Diagnostic items
@@ -39,6 +72,7 @@ function M._render(bufnr, items)
   local lines = {}
   local highlights = {}
   M.line_to_item = {}
+  M.line_to_header = {}
 
   -- Group by filepath
   local grouped = {}
@@ -56,35 +90,91 @@ function M._render(bufnr, items)
   local diagnostics_mod = require('unidiagnostic.diagnostics')
 
   for _, filepath in ipairs(filepaths) do
-    -- Add filepath header
-    table.insert(lines, filepath)
-    table.insert(highlights, { line = #lines - 1, col = 0, end_col = #filepath, hl = 'Directory' })
+    local is_collapsed = M.collapsed[filepath]
+    local items_in_group = grouped[filepath]
+    local display_path = items_in_group[1].display_path
+    local fold_icon = is_collapsed and '▸' or '▾'
+
+    -- Count severity breakdown
+    local sev_counts = {}
+    for _, item in ipairs(items_in_group) do
+      local char = diagnostics_mod.get_severity_char(item.severity)
+      sev_counts[char] = (sev_counts[char] or 0) + 1
+    end
+    -- Build count string in priority order: e, w, i, s
+    -- Format: (2) e, (3) w, (4) i, (5) s
+    local count_parts = {}
+    for _, sev_char in ipairs({ 'e', 'w', 'i', 's' }) do
+      if sev_counts[sev_char] then
+        table.insert(count_parts, '(' .. sev_counts[sev_char] .. ') ' .. sev_char)
+      end
+    end
+    local counts_text = table.concat(count_parts, ', ')
+
+    -- Counts line (above the filename, with colored severity counts)
+    table.insert(lines, counts_text)
+    local counts_line_idx = #lines - 1
+    -- Highlight entire (N) x segment for each severity
+    local cursor = 0
+    for _, sev_char in ipairs({ 'e', 'w', 'i', 's' }) do
+      if sev_counts[sev_char] then
+        local count_str = '(' .. sev_counts[sev_char] .. ') ' .. sev_char
+        local sev = nil
+        if sev_char == 'e' then sev = vim.diagnostic.severity.ERROR
+        elseif sev_char == 'w' then sev = vim.diagnostic.severity.WARN
+        elseif sev_char == 'i' then sev = vim.diagnostic.severity.INFO
+        elseif sev_char == 's' then sev = vim.diagnostic.severity.HINT
+        end
+        table.insert(highlights, {
+          line = counts_line_idx,
+          col = cursor,
+          end_col = cursor + #count_str,
+          hl = M._severity_to_hl(sev),
+        })
+        cursor = cursor + #count_str + 2  -- +2 for ", " separator
+      end
+    end
+    M.line_to_item[#lines] = nil
+    M.line_to_header[#lines] = nil
+
+    -- Filename line with fold icon
+    local header_text = fold_icon .. ' ' .. display_path
+    table.insert(lines, header_text)
+    table.insert(highlights, { line = #lines - 1, col = 0, end_col = 2, hl = 'FoldColumn' })
+    table.insert(highlights, { line = #lines - 1, col = 3, end_col = 3 + #display_path, hl = 'Directory' })
     M.line_to_item[#lines] = nil  -- header line, not clickable
+    M.line_to_header[#lines] = filepath
 
-    for _, item in ipairs(grouped[filepath]) do
-      local sev_char = diagnostics_mod.get_severity_char(item.severity)
-      local line_text = string.format('  [%s]  %d:%d  %s', sev_char, item.lnum, item.col, item.message)
-      table.insert(lines, line_text)
+    if not is_collapsed then
+      for _, item in ipairs(items_in_group) do
+        local sev_char = diagnostics_mod.get_severity_char(item.severity)
+        local line_text = string.format('  [%s]  %d:%d  %s', sev_char, item.lnum, item.col, item.message)
+        table.insert(lines, line_text)
 
-      -- Severity highlight for the [E] part
-      local sev_hl = M._severity_to_hl(item.severity)
-      table.insert(highlights, { line = #lines - 1, col = 2, end_col = 5, hl = sev_hl })
+        -- Severity highlight for the [e] part
+        local sev_hl = M._severity_to_hl(item.severity)
+        table.insert(highlights, { line = #lines - 1, col = 2, end_col = 5, hl = sev_hl })
 
-      M.line_to_item[#lines] = item
+        M.line_to_item[#lines] = item
+      end
     end
 
     -- Empty line between groups
     table.insert(lines, '')
     M.line_to_item[#lines] = nil
+    M.line_to_header[#lines] = nil
   end
 
   -- Remove trailing empty line
   if lines[#lines] == '' then
     table.remove(lines)
     M.line_to_item[#lines + 1] = nil
+    M.line_to_header[#lines + 1] = nil
   end
 
+  vim.api.nvim_set_option_value('modifiable', true, { buf = bufnr })
   vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
+  vim.api.nvim_set_option_value('modifiable', false, { buf = bufnr })
 
   -- Apply highlights
   local ns = vim.api.nvim_create_namespace('unidiagnostic')
@@ -94,7 +184,6 @@ function M._render(bufnr, items)
   end
 
   -- Set buffer options
-  vim.api.nvim_set_option_value('modifiable', false, { buf = bufnr })
   vim.api.nvim_set_option_value('buftype', 'nofile', { buf = bufnr })
   vim.api.nvim_set_option_value('filetype', 'unidiagnostic', { buf = bufnr })
 end

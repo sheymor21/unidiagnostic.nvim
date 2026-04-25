@@ -13,11 +13,13 @@ M.defaults = {
     down = 'j',      -- move down
     open = '<CR>',   -- jump to diagnostic
     close = 'q',     -- close window
+    fold = 'h',      -- toggle fold / retract file group
   },
 
   -- Behavior
   auto_refresh = true,
   severity_sort = true, -- Error > Warn > Info > Hint
+  fold_by_default = true, -- start with all file groups collapsed
 
   -- Reserved for future scanner (ignored now)
   scanner = {
