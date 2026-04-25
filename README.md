@@ -9,7 +9,7 @@ A simple, Colemak-friendly Neovim plugin to view all LSP / built-in diagnostics 
 - **Fold / unfold**: Retract files with too many errors to navigate faster
 - **Short paths**: File names shown relative to cwd, not full absolute paths
 - **Severity sorted**: Errors first, then warnings, info, hints
-- **Colemak-friendly**: Configurable navigation keys
+- **Configurable keys**: Customizable keymaps for actions
 - **Auto-refresh**: Updates automatically on `DiagnosticChanged` and `BufWritePost`
 - **Jump to error**: Press `<CR>` on any diagnostic to jump to it and open the diagnostic float at that location
 - **Customizable position**: Center (default), or any corner of the screen
@@ -46,10 +46,8 @@ require('unidiagnostic').setup({
   height = 20,
   border = 'rounded',
 
-  -- Navigation keys (Colemak-friendly by default, fully customizable)
+  -- Navigation keys (fully customizable)
   keys = {
-    up         = 'k',    -- move up
-    down       = 'j',    -- move down
     open       = '<CR>', -- jump to diagnostic location
     close      = 'q',    -- close window
     fold       = 'h',    -- toggle fold / retract file group
@@ -90,7 +88,6 @@ If no diagnostics exist when opening, a notification is shown instead of an empt
 
 | Key | Action |
 |-----|--------|
-| `j` / `k` | Navigate down / up |
 | `<CR>` | Jump to the diagnostic under cursor |
 | `h` | Toggle fold / retract file group |
 | `s` | Telescope search diagnostics in file under cursor |
