@@ -6,10 +6,12 @@ A simple, Colemak-friendly Neovim plugin to view all LSP / built-in diagnostics 
 
 - **All buffers**: Shows diagnostics from all open buffers
 - **Grouped by file**: Diagnostics are grouped under their file path
+- **Fold / unfold**: Retract files with too many errors to navigate faster
+- **Short paths**: File names shown relative to cwd, not full absolute paths
 - **Severity sorted**: Errors first, then warnings, info, hints
 - **Colemak-friendly**: Configurable navigation keys
-- **Auto-refresh**: Updates automatically when diagnostics change or on save
-- **Jump to error**: Press `<CR>` on any diagnostic to jump directly to it
+- **Auto-refresh**: Updates automatically on `DiagnosticChanged` and `BufWritePost`
+- **Jump to error**: Press `<CR>` on any diagnostic to jump to it and open the diagnostic float at that location
 - **Customizable position**: Center (default), or any corner of the screen
 
 ## Installation
@@ -50,35 +52,67 @@ require('unidiagnostic').setup({
     down  = 'j',    -- move down
     open  = '<CR>', -- jump to diagnostic location
     close = 'q',    -- close window
+    fold  = 'h',    -- toggle fold / retract file group
   },
 
+  -- Window highlights (blend with editor, nil = Neovim defaults)
+  winhighlight = 'Normal:Normal,FloatBorder:VertSplit,FloatTitle:Title',
+
   -- Behavior
-  auto_refresh   = true,
-  severity_sort  = true, -- Error > Warn > Info > Hint
+  auto_refresh      = true,
+  severity_sort     = true, -- Error > Warn > Info > Hint
+  fold_by_default   = true, -- start with all file groups collapsed
+
+  -- Reserved for future scanner (ignored now)
+  scanner = {
+    enabled = false,
+  },
 })
 ```
 
 ## Usage
+
+### Commands
 
 | Command | Description |
 |---------|-------------|
 | `:UnidiagnosticToggle` | Open or close the diagnostic window |
 | `:UnidiagnosticRefresh` | Manually refresh the window content |
 
+If no diagnostics exist when opening, a notification is shown instead of an empty window.
+
+### Default Keymaps (inside the float)
+
+| Key | Action |
+|-----|--------|
+| `j` / `k` | Navigate down / up |
+| `<CR>` | Jump to the diagnostic under cursor |
+| `h` | Toggle fold / retract file group |
+| `q` | Close window |
+| `<Esc>` | Close window |
+
 ## Display Format
 
 ```
-lua/plugins/init.lua
-  [E]  12:5   Undefined variable 'foo'
-  [W]  45:2   Unused local 'bar'
+(1) e, (1) w
+▸ lua/plugins/init.lua
 
-src/core/engine.ts
-  [E]  3:1    Cannot find name 'console'
+(3) e, (2) w, (1) s
+▸ src/core/engine.ts
+
+(1) e
+▾ init.lua
+  [e]  3:1    Cannot find name 'console'
 ```
 
-- `[E]` / `[W]` / `[I]` / `[H]` — colored by severity
+- `▾` / `▸` — expanded / collapsed file group
+- Counts shown **above** the filename
+- Severity letters in counts are colored: `e` error, `w` warn, `i` info, `s` suggest/hint
+- `[e]` / `[w]` / `[i]` / `[s]` — colored by severity
 - `line:column` — exact position
 - Message — the diagnostic text
+- Cursor automatically skips severity-count lines when navigating with `j`/`k`
+- Buffer `filetype` is set to `unidiagnostic` for custom highlights or ftplugin hooks
 
 ## Future: Project Scanner
 
